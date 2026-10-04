@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
+  const mode = searchParams.get('mode') // either "signin" or "signup"
   // if "next" is in param, use it as the redirect URL
   let next = searchParams.get('next') ?? '/'
   if (!next.startsWith('/')) {
@@ -20,11 +21,27 @@ export async function GET(request: Request) {
 
     const {data: { user }} = await supabase.auth.getUser();
     if(!user) return NextResponse.redirect(`${origin}/auth?error=user-not-found`);
-    const {error:userError} = await supabase.from('users').select().eq('id', user!.id).limit(1).single();
-    if(userError){
+
+    if(mode === "signin"){
+      const {error:userError} = await supabase.from('users').select().eq('id', user!.id).limit(1).single();
       await supabase.auth.signOut();
       return NextResponse.redirect(`${origin}/auth?error=user-not-found`);
     } 
+
+    if(mode === "signup"){
+      const {data, error:upsertError} = await supabase.from('users').upsert({
+        id: user!.id,
+        email: user!.email,
+      });
+
+      if(upsertError){
+        console.error("Error upserting user:", upsertError);
+        await supabase.auth.signOut();
+        return NextResponse.redirect(`${origin}/auth?error=user-not-found`);
+      }
+    }
+
+    
 
     if (!error) {
       const forwardedHost = request.headers.get('x-forwarded-host') // original origin before load balancer
